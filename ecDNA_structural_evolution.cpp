@@ -13,6 +13,8 @@
 # include <getopt.h>
 # include <algorithm>
 # include <initializer_list>
+# include <vector>
+# include <iterator>
 
 
 
@@ -28,14 +30,10 @@ using namespace std;
 // Define global variables
 const int _maxsize = 1e5;
 
-#define PI 3.14159265
-
-
-int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dividing_cell_index, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2;
-double t, r_birth_normalised, r_death_normalised, total_unnormalised_division_rate, total_unnormalised_death_rate, rand_double, cumulative_division_rate, selection_coeff, sigmoid_a, sigmoid_b;
-bool verbose_flag, BIRTH, DEATH, added_to_occupancy_vector;
-
-
+int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2, num_ecDNA_segments, daughter_1_current_index, daughter_2_current_index;
+double t, r_birth_normalised, r_death_normalised, total_unnormalised_division_rate, total_unnormalised_death_rate, rand_double, cumulative_division_rate, selection_coeff, sigmoid_a, sigmoid_b, p_change_size, ec_length_sum;
+bool verbose_flag, BIRTH, DEATH, added_to_occupancy_vector, allocated_to_daughter_1;
+vector<int> daughter_1_ec, daughter_2_ec, daughter_1_ec_indices, mother_ec, mother_cell_indices;
 
 
 /*******************************************************************************/
@@ -46,32 +44,45 @@ bool verbose_flag, BIRTH, DEATH, added_to_occupancy_vector;
 class Cell
 {
 	public:
-		int ecDNA;
+		vector<int> ecDNA;
 		double division_rate;
 
 		// Constructors for Cell object
 		Cell()
 		{
-			set_ecDNA(-1);
-			set_division_rate(-1);
+			vector<int> ec;
+			set_ecDNA(ec);
+			set_division_rate(ec);
 		}
 
-		Cell(int n)
+		Cell(vector<int> ec)
 		{
-			set_ecDNA(n);
-			set_division_rate(n);
+			set_ecDNA(ec);
+			set_division_rate(ec);
 		}
 
 		// Set() and get() methods
 		
-		void set_ecDNA(int n)
+		void set_ecDNA(vector<int> ec)
 		{
-			this->ecDNA = n;
+			this->ecDNA = ec;
 		}
 
-		void set_division_rate(int n)
+		void set_division_rate(vector<int> ec)
 		{
-			this->division_rate = 1.0 + (selection_coeff/(1.0+exp(-sigmoid_a * (n - sigmoid_b))));
+			// Sigmoid selection function
+			// Compute mean ecDNA length 
+			if (ec.size() == 0) this->division_rate = 1.0;
+			else
+			{
+				ec_length_sum = 0.0;
+				for (int i = 0; i < ec.size(); ++i) ec_length_sum += (double)ec[i];
+				this->division_rate = 1.0 + (1.0 - (((ec_length_sum/(double)ec.size()) - 1)/(double)(num_ecDNA_segments-1)))*(selection_coeff/(1.0+exp(-sigmoid_a * (ec.size() - sigmoid_b))));
+			}
+
+			// Constant selection function
+			// if (ec.size() == 0) this->division_rate = 1.0;
+			// else this->division_rate = 1.0 + selection_coeff;
 		}
 };
 
@@ -131,10 +142,9 @@ class Occupancy
 
 
 // Select cell to divide, based on individual division rates
-void cell_division(vector<Cell> &tissue , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , mt19937_64 *generator)
+void cell_division(vector<Cell> &tissue , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , int num_ecDNA_segments , double p_change_size , mt19937_64 *generator)
 {
 
-	dividing_cell_index = -1;
 	cumulative_division_rate = 0.0;
 
 	rand_double = drand48();
@@ -149,7 +159,64 @@ void cell_division(vector<Cell> &tissue , double *total_unnormalised_division_ra
 
 
 			// Every ecDNA is copied once
-			doubled_ecDNA_copyNumber = tissue[i].ecDNA * 2;
+			doubled_ecDNA_copyNumber = tissue[i].ecDNA.size() * 2;
+
+
+			// cout << "Mother cell ecDNA (pre-ecDNA replication): ";
+			// for (int j = 0; j < tissue[i].ecDNA.size(); ++j)
+			// {
+			// 	cout << tissue[i].ecDNA[j] << ", ";
+			// }
+			// cout << endl;
+
+
+			// mother_ec is a full, explicit list of ecDNA in the mother cell after ecDNA replication
+			mother_ec.clear();
+			mother_ec.insert(mother_ec.begin(), tissue[i].ecDNA.begin(), tissue[i].ecDNA.end() );
+			mother_ec.insert(mother_ec.begin(), tissue[i].ecDNA.begin(), tissue[i].ecDNA.end() );
+
+
+			// cout << "Mother cell ecDNA (post-ecDNA replication): ";
+			// for (int j = 0; j < mother_ec.size(); ++j)
+			// {
+			// 	cout << mother_ec[j] << ", ";
+			// }
+			// cout << endl;
+
+
+
+
+			// Evolve ecDNA sizes
+			for (int j = 0; j < mother_ec.size(); ++j)
+			{
+				// Edge cases
+				if (mother_ec[j] == 1)
+				{
+					if (drand48() <= p_change_size/2.0) mother_ec[j] += 1;
+				}
+				else if (mother_ec[j] == num_ecDNA_segments)
+				{
+					if (drand48() <= p_change_size/2.0) mother_ec[j] -= 1;
+				}
+
+				// non-edge cases
+				else if (drand48() <= p_change_size)
+				{
+					if (drand48() < 0.5) mother_ec[j] += 1;
+					else mother_ec[j] -= 1;
+				}
+			}
+
+
+
+			// cout << "Mother cell ecDNA (after size changes): ";
+			// for (int j = 0; j < mother_ec.size(); ++j)
+			// {
+			// 	cout << mother_ec[j] << ", ";
+			// }
+			// cout << endl;
+
+
 
 
 			// Distribute ecDNA between two daughter cells according to binomial
@@ -162,9 +229,74 @@ void cell_division(vector<Cell> &tissue , double *total_unnormalised_division_ra
 			*total_unnormalised_division_rate -= tissue[i].division_rate;
 
 
-			// Create daughter cell
-			tissue[i] = Cell(daughter_ecDNA_copyNumber1);
-			tissue[*Ntot] = Cell(daughter_ecDNA_copyNumber2);
+			// Allocate ecDNA to new daughter cells 
+			daughter_1_ec.assign(daughter_ecDNA_copyNumber1 , 0);
+			daughter_2_ec.assign(daughter_ecDNA_copyNumber2 , 0);
+
+
+			// Define sequence of indices up to size of mother cell ecDNA vector 
+			mother_cell_indices.assign(doubled_ecDNA_copyNumber , 0);
+			for (int i = 0; i < doubled_ecDNA_copyNumber; ++i)
+			{
+				mother_cell_indices[i] = i;
+			}
+
+
+			// Randomly select n of these (n = daughter_ecDNA_copyNumber1)
+			daughter_1_ec_indices.clear();
+			sample(mother_cell_indices.begin(), mother_cell_indices.end(), back_inserter(daughter_1_ec_indices), daughter_ecDNA_copyNumber1, *generator);
+
+
+
+			// Allocate ecDNA depending on if their index is contained within random selection vector 
+			daughter_1_current_index = 0;
+			daughter_2_current_index = 0;
+			for (int i = 0; i < mother_ec.size(); ++i)
+			{
+				allocated_to_daughter_1 = false;
+				for (int j = 0; j < daughter_1_ec_indices.size(); ++j)
+				{
+					if (daughter_1_ec_indices[j] == i)
+					{
+						daughter_1_ec[daughter_1_current_index] = mother_ec[i];
+						daughter_1_current_index += 1;
+						allocated_to_daughter_1 = true;
+						break;
+					}
+				}
+
+				// If index not in list of indices for daughter 1, ecDNA goes into daughter 2
+				if (allocated_to_daughter_1 == false)
+				{
+					daughter_2_ec[daughter_2_current_index] = mother_ec[i];
+					daughter_2_current_index += 1;
+				}
+			}
+
+
+			// cout << "Daughter 1 cell ecDNA: ";
+			// for (int j = 0; j < daughter_1_ec.size(); ++j)
+			// {
+			// 	cout << daughter_1_ec[j] << ", ";
+			// }
+			// cout << endl;
+
+
+
+			// cout << "Daughter 2 cell ecDNA: ";
+			// for (int j = 0; j < daughter_2_ec.size(); ++j)
+			// {
+			// 	cout << daughter_2_ec[j] << ", ";
+			// }
+			// cout << endl;
+
+
+		
+
+
+			// Create daughter cells
+			tissue[i] = Cell(daughter_1_ec);
+			tissue[*Ntot] = Cell(daughter_2_ec);
 
 
 
@@ -201,7 +333,6 @@ void cell_division(vector<Cell> &tissue , double *total_unnormalised_division_ra
 void cell_death(vector<Cell> &tissue , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , mt19937_64 *generator)
 {
 
-	dividing_cell_index = -1;
 	cumulative_division_rate = 0.0;
 
 	rand_double = drand48();
@@ -215,7 +346,7 @@ void cell_death(vector<Cell> &tissue , double *total_unnormalised_division_rate 
 		{
 
 			// Book-keeping
-			if (tissue[i].ecDNA > 0) *N_ecDNA_hot -= 1;
+			if (tissue[i].ecDNA.size() > 0) *N_ecDNA_hot -= 1;
 			*total_unnormalised_division_rate -= tissue[i].division_rate;
 
 			// Cell dies. Replace with last cell in tissue vector so that all vector indices from 0 to Ntot-1 are occupied by cells
@@ -249,7 +380,7 @@ void cell_death(vector<Cell> &tissue , double *total_unnormalised_division_rate 
 
 
 // Parse command line arguments (Flags and numerical arguments)
-void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , int *seed , int *initial_copyNumber, double *selection_coeff, double *sigmoid_a, double *sigmoid_b)
+void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , int *seed , int *initial_copyNumber , double *selection_coeff , double *sigmoid_a , double *sigmoid_b , int *num_ecDNA_segments , double *p_change_size)
 {
 	int c;
 	int option_index;
@@ -261,7 +392,7 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 		{"verbose", no_argument, &verbose, 1},
 	}; 
 
-	while ((c = getopt_long(argc, argv, "x:n:s:a:b:", long_options, &option_index)) != -1)
+	while ((c = getopt_long(argc, argv, "x:n:s:a:b:l:p:", long_options, &option_index)) != -1)
 	switch (c)
 	{
 		case 0:
@@ -300,6 +431,18 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 			break;
 
 
+		// parameter defining number of segments into which each ecDNA is divided
+		case 'l':
+			*num_ecDNA_segments = atoi(optarg);
+			break;
+
+
+		// parameter defining number of segments into which each ecDNA is divided
+		case 'p':
+			*p_change_size = atof(optarg);
+			break;
+
+
 		case '?':
 			if (optopt == 'c')
 				fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -325,6 +468,18 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 		cout << "Initial copy number must be 0 or greater. Exiting." << endl;
 		exit(0);
 	}
+
+	if (*num_ecDNA_segments <= 1)
+	{
+		cout << "Invalid ecDNA size parameter. Exiting..." << endl;
+		exit(0);
+	}
+
+	if ((*p_change_size < 0) || (*p_change_size > 1))
+	{
+		cout << "Invalid ecDNA size evolution probability. Exiting..." << endl;
+		exit(0);
+	}
 }
 
 
@@ -340,7 +495,7 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 
 
 // Set up tissue (i.e. array of cells)
-vector<Cell> initialise_tissue(int _maxsize , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , int initial_copyNumber)
+vector<Cell> initialise_tissue(int _maxsize , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , int initial_copyNumber , int num_ecDNA_segments)
 {
 
 	if (verbose_flag) cout << " " << endl;
@@ -353,7 +508,8 @@ vector<Cell> initialise_tissue(int _maxsize , double *total_unnormalised_divisio
 		
 
 	// Seed first tissue cell
-	tissue[0] = Cell(initial_copyNumber);
+	vector<int> initial_ec(initial_copyNumber , num_ecDNA_segments);
+	tissue[0] = Cell(initial_ec);
 
 
 	// Book-keeping
@@ -447,25 +603,23 @@ void choose_next_event(bool *BIRTH , bool *DEATH , double r_birth_normalised , d
 
 
 
-// Kill cell and remove from lattice
-void kill_cell(vector<Cell> &tissue , int *Ntot , int *N_ecDNA_hot , double *total_unnormalised_division_rate)
-{
+// // Kill cell and remove from lattice
+// void kill_cell(vector<Cell> &tissue , int *Ntot , int *N_ecDNA_hot , double *total_unnormalised_division_rate)
+// {
 
-	// Randomly select one cell to die (uniform probability)
-	dying_cell_index = round((drand48() * (*Ntot)) - 0.5);
+// 	// Randomly select one cell to die (uniform probability)
+// 	dying_cell_index = round((drand48() * (*Ntot)) - 0.5);
 
 	
-	// Book-keeping
-	if (tissue[dying_cell_index].ecDNA > 0) *N_ecDNA_hot -= 1;
-	*total_unnormalised_division_rate -= tissue[dying_cell_index].division_rate;
+// 	// Book-keeping
+// 	if (tissue[dying_cell_index].ecDNA > 0) *N_ecDNA_hot -= 1;
+// 	*total_unnormalised_division_rate -= tissue[dying_cell_index].division_rate;
 
-	// Cell dies. Replace with last cell in tissue vector so that all vector indices from 0 to Ntot-1 are occupied by cells
-	tissue[dying_cell_index] = Cell(tissue[*Ntot-1].ecDNA);
-	*Ntot -= 1;
+// 	// Cell dies. Replace with last cell in tissue vector so that all vector indices from 0 to Ntot-1 are occupied by cells
+// 	tissue[dying_cell_index] = Cell(tissue[*Ntot-1].ecDNA);
+// 	*Ntot -= 1;
 
-}
-
-
+// }
 
 
 
@@ -475,7 +629,9 @@ void kill_cell(vector<Cell> &tissue , int *Ntot , int *N_ecDNA_hot , double *tot
 
 
 
-/*******************************************************************************/
+
+
+// /*******************************************************************************/
 
 
 
@@ -507,7 +663,7 @@ int main(int argc, char** argv)
 
 
 	//================== Parse command line arguments ====================//
-	parse_command_line_arguments(argc , argv , &verbose_flag , &seed , &initial_copyNumber , &selection_coeff, &sigmoid_a, &sigmoid_b);
+	parse_command_line_arguments(argc , argv , &verbose_flag , &seed , &initial_copyNumber , &selection_coeff , &sigmoid_a , &sigmoid_b , &num_ecDNA_segments , &p_change_size);
 
 
 
@@ -520,8 +676,11 @@ int main(int argc, char** argv)
 
 
 
+
+
+
 	//================== Initialise tissue ====================//
-	vector<Cell> tissue = initialise_tissue(_maxsize , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , initial_copyNumber);
+	vector<Cell> tissue = initialise_tissue(_maxsize , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , initial_copyNumber , num_ecDNA_segments);
 
 
 
@@ -543,7 +702,10 @@ int main(int argc, char** argv)
 
 		//iter_start_time = clock();
 
-		//cout << iter << endl;
+		//if (iter == 20) exit(0);
+
+		//cout << "---- iter = " << iter << " ---------- n_ecDNA_hot = " << N_ecDNA_hot << " ----------------------------" << endl;
+
 		
 		++iter;
 
@@ -566,7 +728,7 @@ int main(int argc, char** argv)
 		if (BIRTH)
 		{
 			// Cell divides
-			cell_division(tissue , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , &generator);
+			cell_division(tissue , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , num_ecDNA_segments , p_change_size , &generator);
 		}
 
 
@@ -595,23 +757,31 @@ int main(int argc, char** argv)
 			{
 				stringstream f;
 				f.str("");
-				f << "./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed;
+				f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 				DIR *dir = opendir(f.str().c_str());
 				if(!dir)
 				{
 					f.str("");
-					f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed;
+					f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 					system(f.str().c_str());
 				}
 
 				ofstream tissue_file;
 				f.str("");
-				f << "./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed << "/tissue.csv";
+				f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
 				tissue_file.open(f.str().c_str());
 
 
 				if (verbose_flag) cout << " " << endl;
 				if (verbose_flag) cout << "Created output files..." << endl;
+
+
+				// // Loop over all cells 
+				// for (int i = 0; i < tissue.size(); ++i)
+				// {
+				// 	// Write -1 for cells with no ecDNA
+				// 	tissue_file << "-1" << endl;
+				// }
 
 
 				tissue_file << "0," << _maxsize << endl;
@@ -643,18 +813,18 @@ int main(int argc, char** argv)
 
 	stringstream f;
 	f.str("");
-	f << "./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed;
+	f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 	DIR *dir = opendir(f.str().c_str());
 	if(!dir)
 	{
 		f.str("");
-		f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed;
+		f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 		system(f.str().c_str());
 	}
 
 	ofstream tissue_file;
 	f.str("");
-	f << "./RESULTS/Nmax=" << _maxsize << "_initialCopyNumber=" << initial_copyNumber << "_s=" << selection_coeff << "_sigmoidA=" << sigmoid_a << "_sigmoidB=" << sigmoid_b << "/seed=" << seed << "/tissue.csv";
+	f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
 	tissue_file.open(f.str().c_str());
 
 
@@ -664,42 +834,60 @@ int main(int argc, char** argv)
 
 
 	
-	// To reduce size of output file, compute occupancy vector 
-	vector<Occupancy> occupancy_vector;
-
-	// Loop over all cells in system and add to occupancy vector
-	for (int i = 0; i < Ntot; i++)
+	// Loop over all cells 
+	for (int i = 0; i < tissue.size(); ++i)
 	{
+		// Write -1 for cells with no ecDNA
+		if (tissue[i].ecDNA.size() == 0) tissue_file << "-1" << endl;
 
-		added_to_occupancy_vector = false;
-
-		// For each cell, check if occupancy object exists in vector
-		for (int j = 0; j < occupancy_vector.size(); ++j)
-		 {
-		 	// If object exists in vector, add contribution from this cell
-		 	if (occupancy_vector[j].ecDNA == tissue[i].ecDNA)
-		 	{
-		 		occupancy_vector[j].multiplicity += 1;
-		 		added_to_occupancy_vector = true;
-		 	}
-		 } 	
-
-		 // If object does not exist, create it and add contribution from this cell
-		 if (added_to_occupancy_vector == false)
-		 {
-		 	occupancy_vector.push_back(Occupancy(tissue[i].ecDNA , 1));
-		 }
+		// Otherwise, write list of ecDNA sizes
+		else
+		{
+			for (int j = 0; j < tissue[i].ecDNA.size(); ++j)
+			{
+				if (j == tissue[i].ecDNA.size() - 1) tissue_file << tissue[i].ecDNA[j] << endl;
+				else tissue_file << tissue[i].ecDNA[j] << ",";
+			}
+		}
 	}
 
 
 
 
-	// Write occupancy vector data to file
-	for (int i = 0; i < occupancy_vector.size(); ++i)
-	{
-		tissue_file << occupancy_vector[i].ecDNA << "," << occupancy_vector[i].multiplicity << endl;
-	}
 
+	// // To reduce size of output file, compute occupancy vector 
+	// vector<Occupancy> occupancy_vector;
+
+	// // Loop over all cells in system and add to occupancy vector
+	// for (int i = 0; i < Ntot; i++)
+	// {
+
+	// 	added_to_occupancy_vector = false;
+
+	// 	// For each cell, check if occupancy object exists in vector
+	// 	for (int j = 0; j < occupancy_vector.size(); ++j)
+	// 	 {
+	// 	 	// If object exists in vector, add contribution from this cell
+	// 	 	if (occupancy_vector[j].ecDNA == tissue[i].ecDNA.size())
+	// 	 	{
+	// 	 		occupancy_vector[j].multiplicity += 1;
+	// 	 		added_to_occupancy_vector = true;
+	// 	 	}
+	// 	 } 	
+
+	// 	 // If object does not exist, create it and add contribution from this cell
+	// 	 if (added_to_occupancy_vector == false)
+	// 	 {
+	// 	 	occupancy_vector.push_back(Occupancy(tissue[i].ecDNA.size() , 1));
+	// 	 }
+	// }
+
+
+	// // Write occupancy vector data to file
+	// for (int i = 0; i < occupancy_vector.size(); ++i)
+	// {
+	// 	tissue_file << occupancy_vector[i].ecDNA << "," << occupancy_vector[i].multiplicity << endl;
+	// }
 
 
 	tissue_file.close();
