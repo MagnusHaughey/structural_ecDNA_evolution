@@ -776,15 +776,13 @@ int main(int argc, char** argv)
 				if (verbose_flag) cout << "Created output files..." << endl;
 
 
-				// // Loop over all cells 
-				// for (int i = 0; i < tissue.size(); ++i)
-				// {
-				// 	// Write -1 for cells with no ecDNA
-				// 	tissue_file << "-1" << endl;
-				// }
+				// Loop over all cells 
+				for (int i = 0; i < tissue.size(); ++i)
+				{
+					// Write -1 for cells with no ecDNA
+					tissue_file << "-1" << endl;
+				}
 
-
-				tissue_file << "0," << _maxsize << endl;
 
 				exit(0);
 			}
@@ -851,43 +849,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-
-
-
-
-	// // To reduce size of output file, compute occupancy vector 
-	// vector<Occupancy> occupancy_vector;
-
-	// // Loop over all cells in system and add to occupancy vector
-	// for (int i = 0; i < Ntot; i++)
-	// {
-
-	// 	added_to_occupancy_vector = false;
-
-	// 	// For each cell, check if occupancy object exists in vector
-	// 	for (int j = 0; j < occupancy_vector.size(); ++j)
-	// 	 {
-	// 	 	// If object exists in vector, add contribution from this cell
-	// 	 	if (occupancy_vector[j].ecDNA == tissue[i].ecDNA.size())
-	// 	 	{
-	// 	 		occupancy_vector[j].multiplicity += 1;
-	// 	 		added_to_occupancy_vector = true;
-	// 	 	}
-	// 	 } 	
-
-	// 	 // If object does not exist, create it and add contribution from this cell
-	// 	 if (added_to_occupancy_vector == false)
-	// 	 {
-	// 	 	occupancy_vector.push_back(Occupancy(tissue[i].ecDNA.size() , 1));
-	// 	 }
-	// }
-
-
-	// // Write occupancy vector data to file
-	// for (int i = 0; i < occupancy_vector.size(); ++i)
-	// {
-	// 	tissue_file << occupancy_vector[i].ecDNA << "," << occupancy_vector[i].multiplicity << endl;
-	// }
 
 
 	tissue_file.close();
