@@ -28,7 +28,7 @@ using namespace std;
 
 
 // Define global variables
-int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2, num_ecDNA_segments, daughter_1_current_index, daughter_2_current_index, Nmax;
+int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2, num_ecDNA_segments, daughter_1_current_index, daughter_2_current_index, Nmax, occupancy;
 double t, r_birth_normalised, r_death_normalised, total_unnormalised_division_rate, total_unnormalised_death_rate, rand_double, cumulative_division_rate, selection_coeff, sigmoid_a, sigmoid_b, p_change_size, ec_length_sum, x1, x2, x3, x4, ecDNA_size_multiplier;
 bool verbose_flag, BIRTH, DEATH, added_to_occupancy_vector, allocated_to_daughter_1;
 vector<int> daughter_1_ec, daughter_2_ec, daughter_1_ec_indices, mother_ec, mother_cell_indices;
@@ -862,16 +862,20 @@ int main(int argc, char** argv)
 	// Loop over all cells 
 	for (int i = 0; i < tissue.size(); ++i)
 	{
-		// Write -1 for cells with no ecDNA
-		if (tissue[i].ecDNA.size() == 0) tissue_file << "-1" << endl;
-
-		// Otherwise, write list of ecDNA sizes
-		else
+		for (int size = 1; size <= num_ecDNA_segments; ++size)
 		{
+			occupancy = 0;
 			for (int j = 0; j < tissue[i].ecDNA.size(); ++j)
 			{
-				if (j == tissue[i].ecDNA.size() - 1) tissue_file << tissue[i].ecDNA[j] << endl;
-				else tissue_file << tissue[i].ecDNA[j] << ",";
+				if (tissue[i].ecDNA[j] == size) occupancy += 1;
+			}
+			if (size < num_ecDNA_segments)
+			{
+				tissue_file << size << "," << occupancy << ";";
+			}
+			else
+			{
+				tissue_file << size << "," << occupancy << endl;
 			}
 		}
 	}
