@@ -28,10 +28,8 @@ using namespace std;
 
 
 // Define global variables
-const int _maxsize = 1e5;
-
-int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2, num_ecDNA_segments, daughter_1_current_index, daughter_2_current_index;
-double t, r_birth_normalised, r_death_normalised, total_unnormalised_division_rate, total_unnormalised_death_rate, rand_double, cumulative_division_rate, selection_coeff, sigmoid_a, sigmoid_b, p_change_size, ec_length_sum;
+int seed, initial_copyNumber, Ntot, N_ecDNA_hot, iter, doubled_ecDNA_copyNumber, dying_cell_index, daughter_ecDNA_copyNumber1, daughter_ecDNA_copyNumber2, num_ecDNA_segments, daughter_1_current_index, daughter_2_current_index, Nmax;
+double t, r_birth_normalised, r_death_normalised, total_unnormalised_division_rate, total_unnormalised_death_rate, rand_double, cumulative_division_rate, selection_coeff, sigmoid_a, sigmoid_b, p_change_size, ec_length_sum, x1, x2, x3, x4, ecDNA_size_multiplier;
 bool verbose_flag, BIRTH, DEATH, added_to_occupancy_vector, allocated_to_daughter_1;
 vector<int> daughter_1_ec, daughter_2_ec, daughter_1_ec_indices, mother_ec, mother_cell_indices;
 
@@ -72,12 +70,29 @@ class Cell
 		{
 			// Sigmoid selection function
 			// Compute mean ecDNA length 
-			if (ec.size() == 0) this->division_rate = 1.0;
+			if (ec.size() == 0) 
+			{
+				this->division_rate = 1.0;
+			}
+			else if (ec.size() >= sigmoid_b)
+			{
+				ec_length_sum = 0.0;
+				for (int i = 0; i < ec.size(); ++i) ec_length_sum += (double)ec[i];
+				ecDNA_size_multiplier = (1.0 - (((ec_length_sum/(double)ec.size()) - 1)/(double)(num_ecDNA_segments-1)));
+				this->division_rate = 1.0 + (ecDNA_size_multiplier * selection_coeff);
+			}
 			else
 			{
 				ec_length_sum = 0.0;
 				for (int i = 0; i < ec.size(); ++i) ec_length_sum += (double)ec[i];
-				this->division_rate = 1.0 + (1.0 - (((ec_length_sum/(double)ec.size()) - 1)/(double)(num_ecDNA_segments-1)))*(selection_coeff/(1.0+exp(-sigmoid_a * (ec.size() - sigmoid_b))));
+				ecDNA_size_multiplier = (1.0 - (((ec_length_sum/(double)ec.size()) - 1)/(double)(num_ecDNA_segments-1)));
+			
+				x1 = selection_coeff;
+				x2 = 1.0 + ((sigmoid_b - (double)ec.size())/(sigmoid_b - sigmoid_a));
+				x3 = ((double)ec.size() / sigmoid_b);
+				x4 = (sigmoid_b / (sigmoid_b - sigmoid_a));
+
+				this->division_rate = 1.0 + (ecDNA_size_multiplier * x1 * x2 * (pow(x3 , x4)));
 			}
 
 			// Constant selection function
@@ -359,7 +374,7 @@ void cell_death(vector<Cell> &tissue , double *total_unnormalised_division_rate 
 
 
 	// If we get this far, there is a problem with the Gillespie rates. 
-	cout << "Problem with Gillespie rates encountered when choosing cell to divide. Exiting..." << endl;
+	cout << "Problem with Gillespie rates encountered when choosing cell to die. Exiting..." << endl;
 	exit(0);
 	
 }
@@ -380,7 +395,7 @@ void cell_death(vector<Cell> &tissue , double *total_unnormalised_division_rate 
 
 
 // Parse command line arguments (Flags and numerical arguments)
-void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , int *seed , int *initial_copyNumber , double *selection_coeff , double *sigmoid_a , double *sigmoid_b , int *num_ecDNA_segments , double *p_change_size)
+void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , int *seed , int *Nmax , int *initial_copyNumber , double *selection_coeff , double *sigmoid_a , double *sigmoid_b , int *num_ecDNA_segments , double *p_change_size)
 {
 	int c;
 	int option_index;
@@ -392,7 +407,7 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 		{"verbose", no_argument, &verbose, 1},
 	}; 
 
-	while ((c = getopt_long(argc, argv, "x:n:s:a:b:l:p:", long_options, &option_index)) != -1)
+	while ((c = getopt_long(argc, argv, "x:n:k:s:a:b:l:p:", long_options, &option_index)) != -1)
 	switch (c)
 	{
 		case 0:
@@ -407,8 +422,14 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 			break;
 
 
-		// ecDNA copy number in initial cell
+		// Selection coefficient
 		case 'n':
+			*Nmax = atoi(optarg);
+			break;
+
+
+		// ecDNA copy number in initial cell
+		case 'k':
 			*initial_copyNumber = atoi(optarg);
 			break;
 
@@ -480,6 +501,12 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 		cout << "Invalid ecDNA size evolution probability. Exiting..." << endl;
 		exit(0);
 	}
+
+	if (*sigmoid_a >= *sigmoid_b)
+	{
+		cout << "Must have a < b. Exiting..." << endl;
+		exit(0);
+	}
 }
 
 
@@ -495,14 +522,14 @@ void parse_command_line_arguments(int argc, char** argv , bool *verbose_flag , i
 
 
 // Set up tissue (i.e. array of cells)
-vector<Cell> initialise_tissue(int _maxsize , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , int initial_copyNumber , int num_ecDNA_segments)
+vector<Cell> initialise_tissue(int Nmax , double *total_unnormalised_division_rate , int *Ntot , int *N_ecDNA_hot , int initial_copyNumber , int num_ecDNA_segments)
 {
 
 	if (verbose_flag) cout << " " << endl;
 
 
 	// Set up the vector of cells, called tissue
-	vector<Cell> tissue(_maxsize); 
+	vector<Cell> tissue(Nmax); 
 	if (verbose_flag) printf(" Initialising tissue... Done.\r");
 	if (verbose_flag) cout << " " << endl;
 		
@@ -663,7 +690,7 @@ int main(int argc, char** argv)
 
 
 	//================== Parse command line arguments ====================//
-	parse_command_line_arguments(argc , argv , &verbose_flag , &seed , &initial_copyNumber , &selection_coeff , &sigmoid_a , &sigmoid_b , &num_ecDNA_segments , &p_change_size);
+	parse_command_line_arguments(argc , argv , &verbose_flag , &seed , &Nmax , &initial_copyNumber , &selection_coeff , &sigmoid_a , &sigmoid_b , &num_ecDNA_segments , &p_change_size);
 
 
 
@@ -680,7 +707,7 @@ int main(int argc, char** argv)
 
 
 	//================== Initialise tissue ====================//
-	vector<Cell> tissue = initialise_tissue(_maxsize , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , initial_copyNumber , num_ecDNA_segments);
+	vector<Cell> tissue = initialise_tissue(Nmax , &total_unnormalised_division_rate , &Ntot , &N_ecDNA_hot , initial_copyNumber , num_ecDNA_segments);
 
 
 
@@ -757,18 +784,18 @@ int main(int argc, char** argv)
 			{
 				stringstream f;
 				f.str("");
-				f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
+				f << "./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 				DIR *dir = opendir(f.str().c_str());
 				if(!dir)
 				{
 					f.str("");
-					f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
+					f << "mkdir -p ./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 					system(f.str().c_str());
 				}
 
 				ofstream tissue_file;
 				f.str("");
-				f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
+				f << "./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
 				tissue_file.open(f.str().c_str());
 
 
@@ -792,7 +819,7 @@ int main(int argc, char** argv)
 
 
 
-	} while (Ntot < _maxsize);		// Exit once system has reached total size of _maxsize
+	} while (Ntot < Nmax);		// Exit once system has reached total size of Nmax
 
 	if (verbose_flag) cout << " " << endl;
 
@@ -811,18 +838,18 @@ int main(int argc, char** argv)
 
 	stringstream f;
 	f.str("");
-	f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
+	f << "./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 	DIR *dir = opendir(f.str().c_str());
 	if(!dir)
 	{
 		f.str("");
-		f << "mkdir -p ./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
+		f << "mkdir -p ./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed;
 		system(f.str().c_str());
 	}
 
 	ofstream tissue_file;
 	f.str("");
-	f << "./RESULTS/Nmax=" << _maxsize << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
+	f << "./RESULTS/Nmax=" << Nmax << "_k=" << initial_copyNumber << "_s=" << selection_coeff << "_A=" << sigmoid_a << "_B=" << sigmoid_b << "_l=" << num_ecDNA_segments << "_p=" << p_change_size << "/seed=" << seed << "/tissue.csv";
 	tissue_file.open(f.str().c_str());
 
 
