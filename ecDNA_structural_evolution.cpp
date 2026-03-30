@@ -493,7 +493,7 @@ vector<Cell> initialise_tissue(int Nmax , double *total_unnormalised_division_ra
 	vector<int> initial_ec(initial_copyNumber , 0);
 	for (int i = 0; i < initial_ec.size(); ++i)
 	{
-		initial_ec[i] = (int)(max(1.0 , draw_ecDNA_size(*generator)));
+		initial_ec[i] = round(max(1.0 , draw_ecDNA_size(*generator)));
 	}
 
 	// Seed first tissue cell
