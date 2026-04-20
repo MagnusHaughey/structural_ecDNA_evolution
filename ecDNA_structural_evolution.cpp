@@ -769,7 +769,7 @@ int main(int argc, char** argv)
 
 		
 		// Loop over all cells 
-		for (int i = 0; i < tissue.size(); ++i)
+		for (int i = 0; i < Ntot; ++i)
 		{
 			// Find max ecDNA size in cell 
 			max_ecDNA_size = 0;
